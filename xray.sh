@@ -17,11 +17,18 @@ running(){ [[ -s "$PID" ]] || return 1; local p; p=$(cat "$PID" 2>/dev/null || :
 cleanup_pid(){ running || rm -f "$PID"; }
 
 b64(){ local s="$1" r; s=${s//-/+}; s=${s//_/\/}; r=$(( ${#s}%4 )); ((r==2)) && s+='=='; ((r==3)) && s+='='; printf %s "$s" | base64 -d 2>/dev/null || printf %s "$s" | base64 -D 2>/dev/null; }
-urldecode(){ python3 - "$1" <<'PY'
-import sys
-from urllib.parse import unquote
-print(unquote(sys.argv[1]))
-PY
+urldecode() {
+  local s="$1" out="" h i
+  for ((i=0; i<${#s}; i++)); do
+    if [[ ${s:i:1} == % && ${s:i+1:2} =~ ^[0-9A-Fa-f]{2}$ ]]; then
+      h=${s:i+1:2}
+      printf -v out '%s%b' "$out" "\\x$h"
+      ((i+=2))
+    else
+      out+="${s:i:1}"
+    fi
+  done
+  printf '%s' "$out"
 }
 q(){ local query="$1" key="$2" p k v; IFS='&' read -ra a <<< "$query"; for p in "${a[@]}"; do k="${p%%=*}"; [[ $k == "$key" ]] || continue; v="${p#*=}"; [[ $p == *=* ]] || v=; urldecode "$v"; return; done; }
 
@@ -116,7 +123,7 @@ xray.sh commands:
   test [id]           Test one/all nodes through HTTP proxy
   start|stop|restart  Manage Xray
 
-Requires: curl, jq, base64; python3 is used for URI decoding.
+Requires: curl, jq, base64
 Put the Xray binary at ./xray or set XRAY_PATH=/path/to/xray.
 Set NO_START=1 to avoid restarting after select.
 EOF

@@ -15,7 +15,7 @@ Linux/Bash implementation of [`bombless/xray-powershell`](https://github.com/bom
 
 ## Dependencies
 
-`bash`, `curl`, `jq`, `base64`, and `python3` for URI decoding.
+`bash`, `curl`, `jq`, `base64`.
 
 Place the Xray executable at `./xray`, or set `XRAY_PATH`.
 
