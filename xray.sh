@@ -48,7 +48,7 @@ parse_sub(){
     line="${line#"${line%%[![:space:]]*}"}"; [[ -z $line || $line == \#* ]] && continue
     if [[ $line == vmess://* ]]; then
       dec="$(b64 "${line#vmess://}" || :)"
-      if n="$(jq -c --argjson id "$id" '({id:$id,name:(.ps // ("Node-"+($id|tostring))),protocol:"vmess",address:(.add // ""),port:(.port|tonumber),uuid:(.id // ""),active:false,alterId:((.aid // 0)|tonumber),network:(.net // "tcp"),tls:(.tls // ""),type:(.type // "none"),host:(.host // ""),path:(.path // ""),serverName:(.sni // ""),fp:(.fp // "")})' <<< "$dec" 2>/dev/null); then out="$(jq --argjson n "$n" '.+[$n]' <<< "$out")"; id=$((id+1)); fi
+      if n=$(jq -c --argjson id "$id" '{id:$id,name:(.ps // ("Node-"+($id|tostring))),protocol:"vmess",address:(.add // ""),port:(.port|tonumber),uuid:(.id // ""),active:false,alterId:((.aid // 0)|tonumber),network:(.net // "tcp"),tls:(.tls // ""),type:(.type // "none"),host:(.host // ""),path:(.path // ""),serverName:(.sni // ""),fp:(.fp // "")} ' <<< "$dec" 2>/dev/null); then out=$(jq --argjson n "$n" '.+[$n]' <<< "$out"); id=$((id+1)); fi
     elif [[ $line == vless://* || $line == trojan://* ]]; then
       if n="$(uri_node "$line" "$id")"; then out="$(jq --argjson n "$n" '.+[$n]' <<< "$out")"; id=$((id+1)); fi
     fi
@@ -72,7 +72,7 @@ start(){ cleanup_pid; running && { echo "Xray is already running. PID $(cat "$PI
 stop(){ cleanup_pid; running || { echo 'Xray is not running.'; return; }; local p=$(cat "$PID"); kill "$p" 2>/dev/null || :; for _ in {1..20}; do running || break; sleep .1; done; running && kill -9 "$p" 2>/dev/null || :; rm -f "$PID"; log "Stopped Xray PID=$p"; echo 'Xray stopped.'; }
 restart(){ stop; sleep .3; start; }
 update(){ need_base; local url="${1:-}"; [[ -n $url ]] || [[ -s "$DATA/subscription-url.txt" ]] && url="$(<"$DATA/subscription-url.txt")"; [[ -n $url ]] || { echo 'usage: xray.sh update <url>' >&2; return 1; }; local c n count; c="$(curl -fsSL --compressed -A 'v2rayA/debug WebRequestHelper' "$url")" || return 1; printf '%s\n' "$c" > "$SUB"; n="$(parse_sub "$c")"; count=$(jq length <<< "$n"); ((count>0)) || { echo 'no supported nodes found' >&2; return 1; }; jq . <<< "$n" > "$NODES"; log "parsedNodes=$count"; echo "Parsed $count nodes."; }
-list(){ need jq; local n=$(nodes); (( $(jq length <<< "$n") )) || { echo 'No nodes. Run update first.'; return; }; jq -r '.[]|"\(.id)\t\(.name)\t\(.protocol)\t\(.address):\(.port)"' <<< "$n"; }
+list(){ need jq; local n; n=$(nodes); (( $(jq length <<< "$n") )) || { echo 'No nodes. Run update first.'; return; }; jq -r '.[] | [.id, .name, .protocol, (.address + ":" + (.port|tostring))] | @tsv' <<< "$n"; }
 select_node(){ need jq; local id="${1:-}" n node; [[ $id =~ ^[0-9]+$ ]] || return 1; n=$(nodes); node=$(jq -c --argjson id "$id" '.[]|select(.id==$id)' <<< "$n"|head -n1); [[ -n $node ]] || { echo "Node $id not found." >&2; return 1; }; jq --argjson id "$id" 'map(.active=(.id==$id))' <<< "$n" > "$NODES"; write_cfg "$node"; echo "Selected: $(jq -r .name <<< "$node")"; [[ ${NO_START:-0} == 1 ]] || restart; }
 current(){ need jq; local n=$(nodes); jq '.[]|select(.active==true)' <<< "$n"; }
 status(){ cleanup_pid; running && { echo "Xray: Running"; echo "PID: $(cat "$PID")"; } || echo 'Xray: Stopped'; local a=$(nodes|jq -r '.[]|select(.active==true)|.name'|head -n1); [[ -n $a ]] && echo "Node: $a"; echo 'SOCKS5: 127.0.0.1:10808'; echo 'HTTP:   127.0.0.1:10809'; }
