@@ -71,7 +71,35 @@ test_cfg(){ [[ -x $XRAY ]] || { echo "xray not executable: $XRAY" >&2; return 1;
 start(){ cleanup_pid; running && { echo "Xray is already running. PID $(cat "$PID")"; return; }; test_cfg || { echo 'configuration validation failed' >&2; return 1; }; nohup "$XRAY" run -c "$CFG" >>"$LOG" 2>>"$ERR" & echo $! > "$PID"; sleep .2; running || { rm -f "$PID"; echo "start failed; see $ERR" >&2; return 1; }; log "Started Xray PID=$(cat "$PID")"; echo "Xray started. PID $(cat "$PID")"; }
 stop(){ cleanup_pid; running || { echo 'Xray is not running.'; return; }; local p=$(cat "$PID"); kill "$p" 2>/dev/null || :; for _ in {1..20}; do running || break; sleep .1; done; running && kill -9 "$p" 2>/dev/null || :; rm -f "$PID"; log "Stopped Xray PID=$p"; echo 'Xray stopped.'; }
 restart(){ stop; sleep .3; start; }
-update(){ need_base; local url="${1:-}"; [[ -n $url ]] || [[ -s "$DATA/subscription-url.txt" ]] && url="$(<"$DATA/subscription-url.txt")"; [[ -n $url ]] || { echo 'usage: xray.sh update <url>' >&2; return 1; }; local c n count; c="$(curl -fsSL --compressed -A 'v2rayA/debug WebRequestHelper' "$url")" || return 1; printf '%s\n' "$c" > "$SUB"; n="$(parse_sub "$c")"; count=$(jq length <<< "$n"); ((count>0)) || { echo 'no supported nodes found' >&2; return 1; }; jq . <<< "$n" > "$NODES"; log "parsedNodes=$count"; echo "Parsed $count nodes."; }
+update(){
+  need_base
+
+  local url="${1:-}"
+  local c n count
+
+  if [[ -z "$url" && -s "$DATA/subscription-url.txt" ]]; then
+    url="$(<"$DATA/subscription-url.txt")"
+  fi
+
+  [[ -n "$url" ]] || {
+    echo 'usage: xray.sh update <url>' >&2
+    return 1
+  }
+
+  c="$(curl -fsSL --compressed -A 'v2rayA/debug WebRequestHelper' "$url")" || return 1
+  printf '%s\n' "$c" > "$SUB"
+
+  n="$(parse_sub "$c")"
+  count=$(jq length <<< "$n")
+  ((count > 0)) || {
+    echo 'no supported nodes found' >&2
+    return 1
+  }
+
+  jq . <<< "$n" > "$NODES"
+  log "parsedNodes=$count"
+  echo "Parsed $count nodes."
+}
 list(){ need jq; local n; n=$(nodes); (( $(jq length <<< "$n") )) || { echo 'No nodes. Run update first.'; return; }; jq -r '.[] | [.id, .name, .protocol, (.address + ":" + (.port|tostring))] | @tsv' <<< "$n"; }
 select_node(){ need jq; local id="${1:-}" n node; [[ $id =~ ^[0-9]+$ ]] || return 1; n=$(nodes); node=$(jq -c --argjson id "$id" '.[]|select(.id==$id)' <<< "$n"|head -n1); [[ -n $node ]] || { echo "Node $id not found." >&2; return 1; }; jq --argjson id "$id" 'map(.active=(.id==$id))' <<< "$n" > "$NODES"; write_cfg "$node"; echo "Selected: $(jq -r .name <<< "$node")"; [[ ${NO_START:-0} == 1 ]] || restart; }
 current(){ need jq; local n=$(nodes); jq '.[]|select(.active==true)' <<< "$n"; }
